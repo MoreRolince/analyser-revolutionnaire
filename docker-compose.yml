@@ -1,0 +1,134 @@
+version: '3.8'
+
+services:
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: marketpulse_postgres
+    environment:
+      POSTGRES_DB: marketpulse
+      POSTGRES_USER: marketpulse
+      POSTGRES_PASSWORD: marketpulse_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketpulse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis pour les queues et cache
+  redis:
+    image: redis:7-alpine
+    container_name: marketpulse_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: marketpulse_backend
+    environment:
+      DATABASE_URL: postgresql://marketpulse:marketpulse_password@postgres:5432/marketpulse
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      ENVIRONMENT: development
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Worker de scraping (Redis Queue)
+  scraper_worker:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    container_name: marketpulse_scraper
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://marketpulse:marketpulse_password@postgres:5432/marketpulse
+      BACKEND_URL: http://backend:8000
+    volumes:
+      - ./scraper:/app
+    depends_on:
+      - redis
+      - postgres
+      - backend
+    command: python worker.py
+  
+  # Scraper continu (permanent, comme Copyfy)
+  continuous_scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    container_name: marketpulse_continuous_scraper
+    environment:
+      DATABASE_URL: postgresql://marketpulse:marketpulse_password@postgres:5432/marketpulse
+      SCRAPE_INTERVAL_HOURS: 6
+      DISCOVERY_INTERVAL_HOURS: 24
+    volumes:
+      - ./scraper:/app
+      - ./backend:/backend  # Monter le backend pour les imports
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python continuous_worker.py
+    restart: unless-stopped
+
+  # Frontend Next.js
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: marketpulse_frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+
+
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: marketpulse_frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+

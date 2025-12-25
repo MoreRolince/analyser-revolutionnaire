@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from app.database import get_db
-from app.models import User, UserStatus
+from app.models import User, UserStatus, PlanType, Payment, PaymentStatus
 from app.schemas import UserRegister, Token, UserResponse
 from app.auth import (
     verify_password,
@@ -22,13 +22,13 @@ router = APIRouter()
 
 def calculate_quota(user: User) -> dict:
     """Calcule les quotas selon le plan de l'utilisateur"""
-    if user.plan == "3months":
+    if user.plan == PlanType.THREE_MONTHS:
         return {
             "analyses": 100,
             "aiRequests": 500,
             "trackedShops": 10
         }
-    elif user.plan == "6months":
+    elif user.plan == PlanType.SIX_MONTHS:
         return {
             "analyses": 300,
             "aiRequests": 1500,
@@ -54,6 +54,19 @@ async def register(
     payment_proof: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
+    # Valider la longueur du mot de passe
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le mot de passe ne peut pas dépasser 72 bytes (limitation bcrypt). Veuillez utiliser un mot de passe plus court."
+        )
+    if len(password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le mot de passe doit contenir au moins 8 caractères"
+        )
+    
     # Vérifier si l'email existe déjà
     existing_user = db.query(User).filter(User.email == email).first()
     if existing_user:
@@ -76,12 +89,15 @@ async def register(
     
     # Créer l'utilisateur en attente de validation
     hashed_password = get_password_hash(password)
+    # Convertir le plan string en enum PlanType
+    plan_enum = PlanType(plan)
+
     db_user = User(
         email=email,
         name=name,
         hashed_password=hashed_password,
         status=UserStatus.PENDING.value,  # En attente de validation par l'admin
-        plan=plan
+        plan=plan_enum
     )
     db.add(db_user)
     db.commit()
@@ -104,14 +120,12 @@ async def register(
             proof_url = f"/uploads/payment_proofs/{unique_filename}"
             
             # Créer un enregistrement de paiement
-            from app.models import Payment, PaymentStatus
-            
             # Déterminer le montant selon le plan
-            amount = 15000.0 if plan == "3months" else 25000.0
+            amount = 15000.0 if plan_enum == PlanType.THREE_MONTHS else 25000.0
             
             db_payment = Payment(
                 user_id=db_user.id,
-                plan=plan,
+                plan=plan_enum,
                 amount=amount,
                 proof_url=proof_url,
                 status=PaymentStatus.PENDING.value
@@ -137,7 +151,16 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    user = db.query(User).filter(User.email == form_data.username).first()
+    # Accepter soit l'email soit le nom d'utilisateur
+    username_input = form_data.username.strip()
+    
+    # Chercher d'abord par email
+    user = db.query(User).filter(User.email == username_input).first()
+    
+    # Si pas trouvé par email, chercher par nom
+    if not user:
+        user = db.query(User).filter(User.name == username_input).first()
+    
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -163,92 +186,4 @@ async def login(
         data={"sub": str(user.id)}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
-
-@router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user: User = Depends(get_current_active_user)):
-    return UserResponse(
-        id=current_user.id,
-        email=current_user.email,
-        name=current_user.name,
-        role=current_user.role,
-        plan=current_user.plan,
-        quota=calculate_quota(current_user)
-    )
-
-
-            
-            # Créer l'URL relative
-            proof_url = f"/uploads/payment_proofs/{unique_filename}"
-            
-            # Créer un enregistrement de paiement
-            from app.models import Payment, PaymentStatus
-            
-            # Déterminer le montant selon le plan
-            amount = 15000.0 if plan == "3months" else 25000.0
-            
-            db_payment = Payment(
-                user_id=db_user.id,
-                plan=plan,
-                amount=amount,
-                proof_url=proof_url,
-                status=PaymentStatus.PENDING.value
-            )
-            db.add(db_payment)
-            db.commit()
-            
-        except Exception as e:
-            # Si l'upload échoue, on continue quand même l'inscription
-            print(f"Erreur lors de l'upload de la preuve de paiement: {e}")
-    
-    # Retourner une réponse indiquant que l'inscription est en attente
-    return {
-        "id": db_user.id,
-        "email": db_user.email,
-        "name": db_user.name,
-        "status": db_user.status,
-        "message": "Votre inscription est en attente de validation. Vous recevrez un email une fois votre compte activé."
-    }
-
-@router.post("/login", response_model=Token)
-async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
-):
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Vérifier que l'utilisateur est approuvé
-    if user.status != UserStatus.APPROVED.value:
-        if user.status == UserStatus.PENDING.value:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Votre compte est en attente de validation. Veuillez patienter, vous recevrez un email une fois votre compte activé."
-            )
-        elif user.status == UserStatus.REJECTED.value:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Votre compte a été rejeté. Veuillez contacter le support."
-            )
-    
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": str(user.id)}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user: User = Depends(get_current_active_user)):
-    return UserResponse(
-        id=current_user.id,
-        email=current_user.email,
-        name=current_user.name,
-        role=current_user.role,
-        plan=current_user.plan,
-        quota=calculate_quota(current_user)
-    )
 

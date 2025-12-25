@@ -7,6 +7,21 @@ from typing import Dict, Any, Optional, List
 import re
 from urllib.parse import urlparse, urljoin
 from datetime import datetime
+import sys
+import os
+
+# Ajouter le chemin pour importer les scrapers spécifiques
+current_dir = os.path.dirname(os.path.abspath(__file__))
+scraper_dir = os.path.dirname(current_dir)
+if scraper_dir not in sys.path:
+    sys.path.insert(0, scraper_dir)
+
+try:
+    from services.chariow_scraper import ChariowScraper
+    from services.maketou_scraper import MaketouScraper
+    SCRAPERS_AVAILABLE = True
+except ImportError:
+    SCRAPERS_AVAILABLE = False
 
 
 class LandingPageAnalyzer:
@@ -26,11 +41,59 @@ class LandingPageAnalyzer:
     async def analyze_landing_page(self, url: str) -> Optional[Dict[str, Any]]:
         """
         Analyse une landing page pour détecter si c'est un produit digital
+        Utilise les scrapers spécifiques pour Chariow et Maketou si disponibles
         """
         try:
             if not self._is_digital_product_domain(url):
                 return None
             
+            # Utiliser les scrapers spécifiques pour une meilleure précision
+            if SCRAPERS_AVAILABLE:
+                if 'mychariow.shop' in url or 'chariow.com' in url:
+                    try:
+                        scraper = ChariowScraper()
+                        product_data = await scraper.scrape_product(url, "", "")
+                        if product_data and product_data.get('price', 0) > 0:
+                            return {
+                                "landing_page_url": url,
+                                "product_title": product_data.get('title') or product_data.get('name', ''),
+                                "price": product_data.get('price', 0),
+                                "seller_name": product_data.get('shop_name', ''),
+                                "description": product_data.get('description', ''),
+                                "images": product_data.get('images', []) if isinstance(product_data.get('images'), list) else ([product_data.get('image', '')] if product_data.get('image') else []),
+                                "bullet_points": [],
+                                "cta_text": "",
+                                "social_proof": {},
+                                "page_structure": {},
+                                "marketplace": "chariow",
+                                "analyzed_at": datetime.now().isoformat(),
+                            }
+                    except Exception as e:
+                        print(f"    ⚠️  Erreur scraper Chariow {url}: {e}")
+                
+                elif 'mymaketou.store' in url or 'maketou.com' in url:
+                    try:
+                        scraper = MaketouScraper()
+                        product_data = await scraper.scrape_product(url, "", "")
+                        if product_data and product_data.get('price', 0) > 0:
+                            return {
+                                "landing_page_url": url,
+                                "product_title": product_data.get('title') or product_data.get('name', ''),
+                                "price": product_data.get('price', 0),
+                                "seller_name": product_data.get('shop_name', ''),
+                                "description": product_data.get('description', ''),
+                                "images": product_data.get('images', []) if isinstance(product_data.get('images'), list) else ([product_data.get('image', '')] if product_data.get('image') else []),
+                                "bullet_points": [],
+                                "cta_text": "",
+                                "social_proof": {},
+                                "page_structure": {},
+                                "marketplace": "maketou",
+                                "analyzed_at": datetime.now().isoformat(),
+                            }
+                    except Exception as e:
+                        print(f"    ⚠️  Erreur scraper Maketou {url}: {e}")
+            
+            # Fallback sur l'analyseur générique
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
                     headless=True,
@@ -48,7 +111,7 @@ class LandingPageAnalyzer:
                     product_data = {
                         "landing_page_url": url,
                         "product_title": self._extract_title(soup, url),
-                        "price": self._extract_price(soup),
+                        "price": self._extract_price(soup, url),
                         "seller_name": self._extract_seller_name(soup, url),
                         "description": self._extract_description(soup),
                         "images": self._extract_images(soup, url),
@@ -93,7 +156,86 @@ class LandingPageAnalyzer:
             return title[:200]
         return ""
     
-    def _extract_price(self, soup: BeautifulSoup) -> float:
+    def _extract_price(self, soup: BeautifulSoup, url: str = "") -> float:
+        """Extrait le prix avec des sélecteurs spécifiques pour chaque marketplace"""
+        # Utiliser des scrapers spécifiques si disponibles
+        if 'mychariow.shop' in url or 'chariow.com' in url:
+            return self._extract_price_chariow(soup)
+        elif 'mymaketou.store' in url or 'maketou.com' in url:
+            return self._extract_price_maketou(soup)
+        else:
+            return self._extract_price_generic(soup)
+    
+    def _extract_price_chariow(self, soup: BeautifulSoup) -> float:
+        """Extraction spécifique pour Chariow"""
+        # Sélecteurs spécifiques Chariow
+        price_selectors = [
+            '.product-price',
+            '[class*="product-price"]',
+            '[class*="price"]',
+            '[data-price]',
+            'span[class*="price"]',
+            'div[class*="price"]',
+        ]
+        
+        for selector in price_selectors:
+            elems = soup.select(selector)
+            for elem in elems:
+                price_text = elem.get_text(strip=True)
+                # Patterns pour FCFA
+                patterns = [
+                    r'(\d+[\s,.]?\d*)\s*(?:FCFA|XOF|francs?)',
+                    r'(?:FCFA|XOF|francs?)\s*(\d+[\s,.]?\d*)',
+                ]
+                for pattern in patterns:
+                    matches = re.findall(pattern, price_text, re.IGNORECASE)
+                    if matches:
+                        try:
+                            price_str = str(matches[-1]).replace(',', '').replace(' ', '').replace('.', '').strip()
+                            price_val = float(price_str)
+                            # Filtrer les valeurs suspectes (années, IDs, etc.)
+                            if 100 <= price_val <= 1000000:  # Prix raisonnable entre 100 et 1M FCFA
+                                return price_val
+                        except Exception:
+                            continue
+        return 0.0
+    
+    def _extract_price_maketou(self, soup: BeautifulSoup) -> float:
+        """Extraction spécifique pour Maketou"""
+        # Sélecteurs spécifiques Maketou
+        price_selectors = [
+            '.product-price',
+            '[class*="product-price"]',
+            '[class*="price"]',
+            '[data-price]',
+            'span[class*="price"]',
+            'div[class*="price"]',
+        ]
+        
+        for selector in price_selectors:
+            elems = soup.select(selector)
+            for elem in elems:
+                price_text = elem.get_text(strip=True)
+                # Patterns pour FCFA
+                patterns = [
+                    r'(\d+[\s,.]?\d*)\s*(?:FCFA|XOF|francs?)',
+                    r'(?:FCFA|XOF|francs?)\s*(\d+[\s,.]?\d*)',
+                ]
+                for pattern in patterns:
+                    matches = re.findall(pattern, price_text, re.IGNORECASE)
+                    if matches:
+                        try:
+                            price_str = str(matches[-1]).replace(',', '').replace(' ', '').replace('.', '').strip()
+                            price_val = float(price_str)
+                            # Filtrer les valeurs suspectes
+                            if 100 <= price_val <= 1000000:
+                                return price_val
+                        except Exception:
+                            continue
+        return 0.0
+    
+    def _extract_price_generic(self, soup: BeautifulSoup) -> float:
+        """Extraction générique pour les autres marketplaces"""
         price_text = ""
         selectors = ['.price', '[class*="price"]', '[class*="amount"]', '[data-price]', '[data-amount]']
         for selector in selectors:
@@ -107,7 +249,6 @@ class LandingPageAnalyzer:
             r'(\d+[\s,.]?\d*)\s*(?:FCFA|XOF|€|\$|EUR)',
             r'(?:FCFA|XOF|€|\$|EUR)\s*(\d+[\s,.]?\d*)',
             r'\$(\d+[\s,.]?\d*\.?\d*)',
-            r'(\d+[\s,.]?\d*\.?\d*)',
         ]
         for pattern in patterns:
             matches = re.findall(pattern, price_text)
@@ -115,6 +256,9 @@ class LandingPageAnalyzer:
                 try:
                     price_str = str(matches[-1]).replace(',', '').replace(' ', '').strip()
                     price_val = float(price_str)
+                    # Filtrer les valeurs suspectes (années, IDs, etc.)
+                    if price_val < 100 or price_val > 1000000:
+                        continue
                     if '$' in price_text or (price_val < 100 and '.' in price_str):
                         price_val = price_val * 600  # Approx conversion USD->FCFA
                     return price_val

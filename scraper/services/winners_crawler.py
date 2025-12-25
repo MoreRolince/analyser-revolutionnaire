@@ -84,7 +84,8 @@ async def crawl_marketplace_winners(marketplace: str, shop_urls: Optional[List[s
             if not shop_urls:
                 shop_urls = []
         else:
-            return {"products": [], "shops": []}
+            db.close()
+            return {"products": 0, "shops": 0, "marketplace": marketplace}
         
         products = []
         shops = []
@@ -344,7 +345,8 @@ async def crawl_marketplace_winners(marketplace: str, shop_urls: Optional[List[s
             if not shop_urls:
                 shop_urls = []
         else:
-            return {"products": [], "shops": []}
+            db.close()
+            return {"products": 0, "shops": 0, "marketplace": marketplace}
         
         products = []
         shops = []

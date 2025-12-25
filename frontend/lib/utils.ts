@@ -28,7 +28,3 @@ export function formatDate(date: Date | string): string {
   }).format(new Date(date))
 }
 
-
-  }).format(new Date(date))
-}
-

@@ -50,6 +50,9 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        "neon-blue": "#00D9FF",
+        "neon-purple": "#B026FF",
+        "neon-green": "#00FF88",
         neon: {
           blue: "#00D9FF",
           purple: "#B026FF",
@@ -91,21 +94,6 @@ module.exports = {
           to: { transform: "translateY(0)", opacity: 1 },
         },
       },
-      animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
-        "glow": "glow 2s ease-in-out infinite",
-        "pulse-neon": "pulse-neon 2s ease-in-out infinite",
-        "fade-in": "fade-in 0.5s ease-out",
-        "slide-in-from-bottom": "slide-in-from-bottom 0.5s ease-out",
-        "slide-in-from-top": "slide-in-from-top 0.5s ease-out",
-      },
-    },
-  },
-  plugins: [require("tailwindcss-animate")],
-}
-
-
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",

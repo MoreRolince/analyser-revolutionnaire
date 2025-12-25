@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app.database import get_db
-from app.models import User, TrackedShop, Shop
+from app.models import User, TrackedShop, Shop, PlanType
 from app.schemas import ShopResponse
 from app.auth import get_current_active_user
 
@@ -20,7 +20,12 @@ async def add_tracked_shop(
         TrackedShop.user_id == current_user.id
     ).count()
     
-    max_tracked = 10 if current_user.plan == "3months" else (30 if current_user.plan == "6months" else 3)
+    if current_user.plan == PlanType.THREE_MONTHS:
+        max_tracked = 10
+    elif current_user.plan == PlanType.SIX_MONTHS:
+        max_tracked = 30
+    else:
+        max_tracked = 3
     
     if tracked_count >= max_tracked:
         raise HTTPException(

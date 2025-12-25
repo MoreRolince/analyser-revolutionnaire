@@ -1,5 +1,9 @@
 # Boutiques Chariow - Produits digitaux
-# (À découvrir automatiquement)
+# Ajoutez ici les URLs des boutiques Chariow à découvrir
+# Format: https://nom-boutique.mychariow.shop/fr
+https://tuswehnj.mychariow.shop/fr
 
 # Boutiques Maketou - Produits digitaux
-# (À découvrir automatiquement)
+# Ajoutez ici les URLs des boutiques Maketou à découvrir
+# Format: https://nom-boutique.mymaketou.store/fr
+https://numerik.mymaketou.store/fr

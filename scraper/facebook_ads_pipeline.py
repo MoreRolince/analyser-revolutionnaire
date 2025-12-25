@@ -17,7 +17,13 @@ backend_path = os.path.join(project_root, 'backend')
 if backend_path not in sys.path:
     sys.path.insert(0, backend_path)
 
-# Configuration DB
+# Configuration DB - Utiliser la même config que le backend
+from dotenv import load_dotenv
+env_path = os.path.join(project_root, 'backend', '.env')
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+
+# Le port 5433 est mappé depuis 5432 dans docker-compose
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://marketpulse:marketpulse_password@localhost:5433/marketpulse"
@@ -27,7 +33,8 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
 # Importer les modules
-from services.facebook_ads_scraper import FacebookAdsScraper
+# Utiliser le scraper "working" qui extrait mieux les vraies URLs
+from services.facebook_ads_scraper_working import scrape_ads_library
 from services.landing_page_analyzer import LandingPageAnalyzer
 from services.product_deduplicator import ProductDeduplicator
 from services.winner_scorer import WinnerScorer
@@ -113,9 +120,12 @@ async def analyze_landing_pages(db, ads: list, analyzer: LandingPageAnalyzer):
                     products_detected.append(product_data)
                     print(f"    ✅ Produit digital détecté: {product_data.get('product_title', '')[:50]}")
                 else:
-                    # Mettre à jour le produit existant
+                    # Mettre à jour le produit existant (toujours mettre à jour le prix pour corriger les erreurs)
                     existing.product_title = product_data.get('product_title', existing.product_title)
-                    existing.price = product_data.get('price', existing.price)
+                    # Toujours mettre à jour le prix pour corriger les erreurs d'extraction
+                    new_price = product_data.get('price', 0)
+                    if new_price > 0:  # Seulement si un nouveau prix valide est trouvé
+                        existing.price = new_price
                     existing.description = product_data.get('description', existing.description)
                     existing.images = product_data.get('images', existing.images)
                     existing.updated_at = datetime.now()
@@ -274,44 +284,167 @@ def calculate_winner_scores(db):
 
 async def main():
     """Pipeline principal"""
-    print("🚀 PIPELINE FACEBOOK ADS - DÉTECTION DE PRODUITS DIGITAUX WINNERS")
-    print("=" * 70)
+    import sys
+    sys.stdout.reconfigure(line_buffering=True)  # Force line buffering
+    sys.stderr.reconfigure(line_buffering=True)
+    
+    print("🚀 PIPELINE FACEBOOK ADS - DÉTECTION DE PRODUITS DIGITAUX WINNERS", flush=True)
+    print("=" * 70, flush=True)
     
     db = SessionLocal()
     
     try:
         # Étape 1: Scraper Facebook Ads Library - TOUTE la bibliothèque
-        print("\n📦 ÉTAPE 1: Scraping Facebook Ads Library - Afrique de l'Ouest")
-        print("-" * 70)
-        print("🌍 Pays ciblés: Sénégal, Côte d'Ivoire, Mali, Burkina Faso, Bénin, Togo, etc.")
-        print("📝 Mots-clés: Tous les mots-clés produits digitaux")
-        print("🔄 Parcourt TOUTE la bibliothèque avec scroll infini")
-        print("-" * 70)
+        print("\n📦 ÉTAPE 1: Scraping Facebook Ads Library - Afrique de l'Ouest", flush=True)
+        print("-" * 70, flush=True)
+        print("🌍 Pays ciblés: Sénégal, Côte d'Ivoire, Mali, Burkina Faso, Bénin, Togo, etc.", flush=True)
+        print("📝 Mots-clés: Tous les mots-clés produits digitaux", flush=True)
+        print("🔄 Parcourt TOUTE la bibliothèque avec scroll infini", flush=True)
+        print("💾 Sauvegarde par batch toutes les 50 annonces", flush=True)
+        print("-" * 70, flush=True)
         
-        ads_scraper = FacebookAdsScraper()
+        # Liste étendue de mots-clés pour trouver plus de produits winners
+        # Focus sur les produits digitaux africains (business + formation + spiritualité)
+        important_keywords = [
+            # Mots-clés généraux produits digitaux
+            "formation",
+            "ebook",
+            "coaching",
+            "business en ligne",
+            "make money",
+            "revenus passifs",
+            "formation en ligne",
+            "cours en ligne",
+            "guide pdf",
+            "programme",
+            # Mots-clés marketplaces
+            "maketou",
+            "chariow",
+            "systeme.io",
+            # Mots-clés business digital
+            "dropshipping",
+            "affiliation",
+            "marketing digital",
+            "facebook ads",
+            "e-commerce",
+            # Mots-clés formation spécialisée
+            "formation marketing",
+            "formation e-commerce",
+            "formation dropshipping",
+            "formation copywriting",
+            # Mots-clés développement personnel / spiritualité
+            "développement personnel",
+            "spiritualité",
+            "loi de l'attraction",
+            "prière",
+            # Mots-clés finance / trading
+            "trading",
+            "forex",
+            "investissement",
+        ]
         
-        # Scraper TOUTES les annonces pour TOUS les mots-clés en Afrique de l'Ouest
-        # Pays Afrique de l'Ouest uniquement
-        west_africa_countries = ["SN", "CI", "ML", "BF", "BJ", "TG", "MR", "GW", "GN", "SL"]
+        all_ads = []
+        total_keywords = len(important_keywords)
+        current = 0
+        batch_size = 10  # Sauvegarder tous les 10 annonces
+        total_saved = 0
         
-        print(f"\n🚀 Démarrage du scraping complet...")
-        all_ads = await ads_scraper.scrape_all_keywords(
-            countries=west_africa_countries,
-            limit_per_keyword=200  # 200 annonces max par combinaison mot-clé/pays
-        )
+        print(f"\n📊 Configuration PIPELINE ÉTENDU:")
+        print(f"   Mots-clés: {len(important_keywords)} (liste complète)")
+        print(f"   Scraper: facebook_ads_scraper_working (meilleure extraction URLs)")
+        print(f"   Total mots-clés: {total_keywords}")
+        print(f"   Batch size: {batch_size} annonces", flush=True)
         
-        print(f"\n✅ {len(all_ads)} annonces uniques scrapées")
+        for keyword in important_keywords:
+            current += 1
+            try:
+                print(f"\n[{current}/{total_keywords}] '{keyword}'", flush=True)
+                # Utiliser scrape_ads_library qui extrait mieux les vraies URLs
+                # Augmenter la limite à 50 annonces par mot-clé pour avoir plus de résultats
+                scraped_ads = await scrape_ads_library(search_term=keyword, limit=50)
+                
+                # Convertir le format ScrapedAd vers le format attendu
+                converted_ads = []
+                for ad in scraped_ads:
+                    # Utiliser productUrl ou snapshotUrl comme landing page
+                    landing_url = ad.get('productUrl') or ad.get('snapshotUrl') or ''
+                    if landing_url and landing_url.startswith('http'):
+                        converted_ads.append({
+                            "product_title": ad.get('title') or keyword,
+                            "ad_text": ad.get('text') or '',
+                            "landing_page_url": landing_url,
+                            "cta_url": landing_url,
+                            "advertiser_page": ad.get('pageName') or '',
+                            "start_date": None,
+                            "active_status": "active",
+                            "country_targeting": "SN",  # Par défaut Sénégal
+                            "keyword": keyword,
+                            "scraped_at": datetime.now().isoformat(),
+                            "media_url": ad.get('imageUrl'),
+                        })
+                
+                all_ads.extend(converted_ads)
+                print(f"  ✅ {len(converted_ads)} annonces ajoutées (Total: {len(all_ads)})", flush=True)
+                
+                # Sauvegarder par batch
+                if len(all_ads) >= batch_size:
+                    print(f"  💾 Sauvegarde batch de {len(all_ads)} annonces...", flush=True)
+                    batch_saved = await save_ads_to_db(db, all_ads)
+                    total_saved += batch_saved
+                    print(f"  ✅ {batch_saved} nouvelles annonces sauvegardées (Total: {total_saved})", flush=True)
+                    all_ads = []  # Réinitialiser pour le prochain batch
+                
+                await asyncio.sleep(3)  # Pause entre les recherches
+            except Exception as e:
+                print(f"  ⚠️  Erreur pour '{keyword}': {e}", flush=True)
+                import traceback
+                traceback.print_exc()
+                continue
         
-        # Sauvegarder les annonces
-        ads_saved = await save_ads_to_db(db, all_ads)
-        print(f"✅ {ads_saved} nouvelles annonces sauvegardées")
+        # Sauvegarder les annonces restantes
+        if all_ads:
+            print(f"\n💾 Sauvegarde finale de {len(all_ads)} annonces...")
+            batch_saved = await save_ads_to_db(db, all_ads)
+            total_saved += batch_saved
+            print(f"  ✅ {batch_saved} nouvelles annonces sauvegardées")
+        
+        print(f"\n✅ {total_saved} nouvelles annonces sauvegardées au total", flush=True)
+        
+        # Récupérer toutes les annonces de la DB pour les étapes suivantes
+        print(f"\n📥 Récupération des annonces depuis la base de données...", flush=True)
+        all_ads_from_db = db.query(FacebookAdRaw).all()
+        print(f"  ✅ {len(all_ads_from_db)} annonces récupérées", flush=True)
+        
+        # Convertir en format dict pour l'analyse
+        ads_for_analysis = []
+        for ad in all_ads_from_db:
+            ads_for_analysis.append({
+                'landing_page_url': ad.landing_page_url,
+                'product_title': ad.product_title,
+                'description': ad.description,
+                'media_url': ad.media_url,
+                'advertiser_page': ad.advertiser_page,
+                'keyword': ad.keyword,
+            })
+        
+        # Déduplication finale
+        print(f"\n🔄 Déduplication finale...")
+        seen_urls = set()
+        unique_ads = []
+        for ad in ads_for_analysis:
+            url = ad.get('landing_page_url', '')
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_ads.append(ad)
+        
+        print(f"\n✅ {len(unique_ads)} annonces uniques scrapées", flush=True)
         
         # Étape 2: Analyser les landing pages
-        print("\n📦 ÉTAPE 2: Analyse des landing pages")
-        print("-" * 70)
+        print("\n📦 ÉTAPE 2: Analyse des landing pages", flush=True)
+        print("-" * 70, flush=True)
         
         analyzer = LandingPageAnalyzer()
-        products_detected = await analyze_landing_pages(db, all_ads, analyzer)
+        products_detected = await analyze_landing_pages(db, unique_ads, analyzer)
         
         # Étape 3: Déduplication
         print("\n📦 ÉTAPE 3: Déduplication des produits")
@@ -329,8 +462,7 @@ async def main():
         print(f"\n{'='*70}")
         print(f"✅ PIPELINE TERMINÉ!")
         print(f"{'='*70}")
-        print(f"Annonces scrapées: {len(all_ads)}")
-        print(f"Annonces sauvegardées: {ads_saved}")
+        print(f"Annonces sauvegardées: {total_saved}")
         print(f"Produits digitaux détectés: {len(products_detected)}")
         print(f"Produits dupliqués fusionnés: {duplicates_count}")
         print(f"Changements de prix détectés: {price_changes_count}")
@@ -338,7 +470,7 @@ async def main():
         
         # Statistiques des winners
         winners = db.query(DigitalProductScore).filter(
-            DigitalProductScore.winner_score >= 60.0
+            DigitalProductScore.winner_score >= 50.0
         ).count()
         
         print(f"\n🏆 WINNERS (score >= 60): {winners}")
@@ -346,9 +478,10 @@ async def main():
         print(f"\n🎉 Les produits digitaux winners sont maintenant dans la base de données!")
         
     except Exception as e:
-        print(f"\n❌ Erreur fatale: {e}")
+        print(f"\n❌ Erreur fatale: {e}", flush=True)
         import traceback
         traceback.print_exc()
+        sys.stdout.flush()
     finally:
         db.close()
 

@@ -29,6 +29,14 @@ class UserRegister(BaseModel):
     name: str
     email: EmailStr
     password: str
+    
+    @validator('password')
+    def validate_password(cls, v):
+        if len(v) < 8:
+            raise ValueError('Le mot de passe doit contenir au moins 8 caractères')
+        if len(v.encode('utf-8')) > 72:
+            raise ValueError('Le mot de passe ne peut pas dépasser 72 bytes (limitation bcrypt)')
+        return v
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -65,6 +73,17 @@ class AnalysisResult(BaseModel):
     score: float
     data: Dict[str, Any]
     ai_insights: Optional[str] = None
+    job_id: Optional[str] = None  # Pour le mode job/polling
+
+class AnalysisJobStatus(BaseModel):
+    job_id: str
+    status: str
+    progress: Optional[int] = None  # Pourcentage 0-100
+    products_found: Optional[int] = None  # Nombre de produits trouvés jusqu'ici
+    total_products: Optional[int] = None  # Nombre total de produits estimé
+    partial_result: Optional[Dict[str, Any]] = None  # Résultat partiel avec produits déjà trouvés
+    result: Optional[Dict[str, Any]] = None  # Résultat final
+    error: Optional[str] = None
 
 # Shop Schemas
 class ShopCreate(BaseModel):
@@ -166,58 +185,6 @@ class ShopGlobalResponse(BaseModel):
 
 # Admin Schemas
 class PaymentApproval(BaseModel):
-    payment_id: int
     approve: bool
-
-
-    shop_name: str
-    product_url: str
-    product_image: Optional[str] = None
-    product_description: Optional[str] = None
-    price: Optional[float]
-    sales_est_min: Optional[int]
-    sales_est_max: Optional[int]
-    revenue_est_min: Optional[float]
-    revenue_est_max: Optional[float]
-    score_winner: float
-    category: Optional[str]
-    last_scraped_at: Optional[datetime]
-    created_at: datetime
-
-    @validator('marketplace', pre=True)
-    def convert_marketplace(cls, v):
-        """Convertit l'enum ou string en string"""
-        if hasattr(v, 'value'):
-            return v.value
-        return str(v) if v else 'other'
-
-    class Config:
-        from_attributes = True
-
-class ShopGlobalResponse(BaseModel):
-    id: int
-    marketplace: str  # String au lieu d'enum pour compatibilité
-    shop_name: str
-    shop_url: str
-    score_global: float
-    revenue_est_min: Optional[float]
-    revenue_est_max: Optional[float]
-    winners_count: int
-    last_scraped_at: Optional[datetime]
-    created_at: datetime
-
-    @validator('marketplace', pre=True)
-    def convert_marketplace(cls, v):
-        """Convertit l'enum ou string en string"""
-        if hasattr(v, 'value'):
-            return v.value
-        return str(v) if v else 'other'
-
-    class Config:
-        from_attributes = True
-
-# Admin Schemas
-class PaymentApproval(BaseModel):
-    payment_id: int
-    approve: bool
+    # payment_id est dans l'URL, pas besoin de le mettre dans le body
 

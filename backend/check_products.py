@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.database import SessionLocal
 from app.models import ProductGlobal
-from sqlalchemy import func
+from sqlalchemy import func, case
 
 def check_products():
     db = SessionLocal()
@@ -76,7 +76,7 @@ def check_products():
         marketplace_stats = db.query(
             ProductGlobal.marketplace,
             func.count(ProductGlobal.id).label('total'),
-            func.sum(func.case(
+            func.sum(case(
                 (
                     (ProductGlobal.product_name.isnot(None)) & 
                     (ProductGlobal.product_name != '') &
@@ -127,7 +127,7 @@ def check_products():
 if __name__ == "__main__":
     check_products()
 
-
+"""
 Script pour vérifier les produits dans la base de données
 """
 import sys
@@ -138,7 +138,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.database import SessionLocal
 from app.models import ProductGlobal
-from sqlalchemy import func
+from sqlalchemy import func, case
 
 def check_products():
     db = SessionLocal()
@@ -205,7 +205,7 @@ def check_products():
         marketplace_stats = db.query(
             ProductGlobal.marketplace,
             func.count(ProductGlobal.id).label('total'),
-            func.sum(func.case(
+            func.sum(case(
                 (
                     (ProductGlobal.product_name.isnot(None)) & 
                     (ProductGlobal.product_name != '') &

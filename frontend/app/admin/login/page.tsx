@@ -41,7 +41,7 @@ export default function AdminLoginPage() {
       localStorage.setItem('token', access_token)
 
       // Récupérer les informations de l'utilisateur
-      const userResponse = await api.get('/auth/me')
+      const userResponse = await api.get('/users/me')
       const user = userResponse.data
 
       // Vérifier que l'utilisateur est admin
@@ -203,7 +203,7 @@ export default function AdminLoginPage() {
       localStorage.setItem('token', access_token)
 
       // Récupérer les informations de l'utilisateur
-      const userResponse = await api.get('/auth/me')
+      const userResponse = await api.get('/users/me')
       const user = userResponse.data
 
       // Vérifier que l'utilisateur est admin

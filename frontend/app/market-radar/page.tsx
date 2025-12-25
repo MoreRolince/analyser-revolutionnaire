@@ -173,33 +173,3 @@ export default function MarketRadarPage() {
   )
 }
 
-
-                  className="flex items-center justify-between p-4 rounded-xl border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200"
-                >
-                  <div className="flex items-center gap-4">
-                    <span className="text-2xl font-black text-gray-400 w-8">#{idx + 1}</span>
-                    <div>
-                      <p className="font-semibold text-gray-900">{shop.name}</p>
-                      <p className="text-sm text-gray-500">
-                        {shop.product_count} produits winners
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-black text-gray-900">
-                      {shop.estimated_revenue ? formatCurrency(shop.estimated_revenue) : 'N/A'}
-                    </p>
-                    <p className="text-sm text-gray-500">CA estimé/mois</p>
-                  </div>
-                </div>
-              )) : (
-                <p className="text-center text-gray-600 py-12">Aucune boutique disponible pour le moment.</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </DashboardLayout>
-  )
-}
-

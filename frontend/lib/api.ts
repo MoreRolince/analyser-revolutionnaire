@@ -1,15 +1,15 @@
 import axios from 'axios'
 
 // Configuration de l'URL de l'API
-// En développement, utiliser localhost:8001
+// En développement, utiliser localhost:8000 (port du backend FastAPI)
 // En production, utiliser la variable d'environnement NEXT_PUBLIC_API_URL
-const getApiUrl = () => {
+export const getApiUrl = () => {
   if (typeof window !== 'undefined') {
     // Côté client, vérifier les variables d'environnement
-    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
   }
   // Côté serveur
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 }
 
 const API_URL = getApiUrl()
@@ -19,7 +19,7 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000, // 10 secondes de timeout
+  timeout: 180000, // 180 secondes pour couvrir scraping multi-pages volumineux
 })
 
 // Log de la configuration en développement
@@ -37,38 +37,6 @@ api.interceptors.request.use((config) => {
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
-  }
-  return config
-})
-
-// Intercepteur pour gérer les erreurs
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    // Log des erreurs pour le débogage
-    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-      console.error('API Error:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        url: error.config?.url,
-        baseURL: error.config?.baseURL
-      })
-    }
-    
-    if (error.response?.status === 401) {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token')
-        window.location.href = '/auth/login'
-      }
-    }
-    return Promise.reject(error)
-  }
-)
-
-export default api
-
-
   }
   return config
 })

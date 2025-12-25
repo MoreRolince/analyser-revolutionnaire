@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: marketpulse_postgres
+    environment:
+      POSTGRES_DB: marketpulse
+      POSTGRES_USER: marketpulse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketpulse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Ne pas exposer le port en production sauf si nécessaire
+    # ports:
+    #   - "5432:5432"
+
+  # Redis pour les queues et cache
+  redis:
+    image: redis:7-alpine
+    container_name: marketpulse_redis
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Ne pas exposer le port en production
+    # ports:
+    #   - "6379:6379"
+
+  # Backend FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: marketpulse_backend
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      SECRET_KEY: ${SECRET_KEY}
+      ENVIRONMENT: production
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Utiliser plusieurs workers pour la production
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+    # Exposer seulement en interne (Nginx fera le reverse proxy)
+    expose:
+      - "8000"
+    # Ou si vous voulez directement exposer :
+    # ports:
+    #   - "8000:8000"
+
+  # Frontend Next.js
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: marketpulse_frontend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NODE_ENV: production
+    restart: unless-stopped
+    depends_on:
+      - backend
+    expose:
+      - "3000"
+
+  # Worker de scraping (Redis Queue)
+  scraper_worker:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    container_name: marketpulse_scraper
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: ${DATABASE_URL}
+      BACKEND_URL: http://backend:8000
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - postgres
+      - backend
+    command: python worker.py
+    # Limiter les ressources si nécessaire
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+  
+  # Scraper continu (permanent)
+  continuous_scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    container_name: marketpulse_continuous_scraper
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SCRAPE_INTERVAL_HOURS: ${SCRAPE_INTERVAL_HOURS:-6}
+      DISCOVERY_INTERVAL_HOURS: ${DISCOVERY_INTERVAL_HOURS:-24}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python continuous_worker.py
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: marketpulse_network
+
+

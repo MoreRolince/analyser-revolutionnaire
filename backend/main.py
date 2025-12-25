@@ -5,10 +5,12 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import os
 from pathlib import Path
+from datetime import datetime
 from dotenv import load_dotenv
 
-from app.database import engine, Base
+from app.database import engine, Base, SessionLocal
 from app.routers import auth, users, analyse, shops, products, favorites, admin, dashboard, winners, scraper, market_stats
+from sqlalchemy import text
 
 load_dotenv()
 
@@ -60,18 +62,27 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
-
-
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    """Endpoint de santé qui vérifie la connexion à la base de données"""
+    try:
+        db = SessionLocal()
+        try:
+            # Test simple de connexion à la base de données
+            db.execute(text("SELECT 1"))
+            return {
+                "status": "healthy",
+                "database": "connected",
+                "timestamp": datetime.now().isoformat()
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "database": "disconnected",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+        )
 
